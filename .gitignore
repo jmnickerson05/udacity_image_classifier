@@ -1,3 +1,4 @@
+*.pth
 examples/*
 misc/*
 flowers/*
