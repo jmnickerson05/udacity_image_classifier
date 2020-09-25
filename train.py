@@ -35,47 +35,47 @@ class DL_Trainer:
 
     def initialize_model(self, feature_extract, use_pretrained=True):
         model_ft = None
-        hidden_units = self.args.hidden_units
+        hidden_unit_size = self.args.hidden_units
         input_size = 0
         if self.args.arch.lower() == 'vgg16':
             model_ft = models.vgg16_bn(pretrained=use_pretrained)
         if self.args.arch.lower() == 'alexnet':
             model_ft = models.alexnet(pretrained=use_pretrained)
         self.set_parameter_requires_grad(model_ft, feature_extract)
-        """
-        NOTE: I have no idea what to do with this part. 
-        It will run to completion if it is uncommented, 
-        but including it destroys the accuracy of my models and I don't really understand why.
+        num_classes = len(self.image_datasets['train'].classes)
 
-        ¯\_(-_-)_/¯
-        """
-        #         if self.args.arch.lower() == 'vgg16':
-        #             classifier = nn.Sequential(OrderedDict([
-        #                 ('fc1', nn.Linear(in_features=model_ft.classifier[0].in_features,
-        #                                out_features=hidden_units, bias=True)),
-        #                 ('relu1', nn.ReLU(inplace=True)),
-        #                 ('drop1', nn.Dropout(p=0.5, inplace=False)),
-        #                 ('fc2', nn.Linear(in_features=hidden_units, out_features=hidden_units, bias=True)),
-        #                 ('relu2', nn.ReLU(inplace=True)),
-        #                 ('drop2', nn.Dropout(p=0.5, inplace=False)),
-        #                 ('fc3', nn.Linear(in_features=hidden_units, out_features=102, bias=True)),
-        #             ]))
-        #         elif self.args.arch.lower() == 'alexnet':
-        #             classifier = nn.Sequential(OrderedDict([
-        #                 ('drop1', nn.Dropout(p=0.5, inplace=False)),
-        #                 ('fc1', nn.Linear(in_features=model_ft.classifier[1].in_features,
-        #                                   out_features=hidden_units, bias=True)),
-        #                 ('relu1', nn.ReLU(inplace=True)),
-        #                 ('drop2', nn.Dropout(p=0.5, inplace=False)),
-        #                 ('fc2', nn.Linear(in_features=hidden_units, out_features=hidden_units, bias=True)),
-        #                 ('relu2', nn.ReLU(inplace=True)),
-        #                 ('fc3', nn.Linear(in_features=hidden_units, out_features=102, bias=True))
-        #             ]))
-        #         model_ft.classifier = classifier
+        ##Adapted from Udacity Forums
+        if hidden_unit_size != 4096:
+            if self.args.arch.lower() == 'vgg16':
+                in_feats = model_ft.classifier[0].in_features
+            elif self.args.arch.lower() == 'alexnet':
+                in_feats = model_ft.classifier[1].in_features
+
+            hidden_units = [int(x) for x in [hidden_unit_size, hidden_unit_size]]
+            hidden_units = [in_feats] + hidden_units
+            hidden_units_pair = list(zip(hidden_units, hidden_units[1:]))
+            hidden_units_pair.append((hidden_units[-1], num_classes))
+
+            lcnt, rcnt, dcnt = 0, 0, 0
+            layers = []
+            for layer in enumerate(model_ft.classifier):
+                if 'Linear' in str(layer):
+                    layers.append((f'fc{lcnt}', nn.Linear(in_features=hidden_units_pair[lcnt][0],
+                                                          out_features=hidden_units_pair[lcnt][1], bias=True)))
+                    lcnt += 1
+                elif 'ReLU' in str(layer):
+                    layers.append((f'relu{rcnt}', nn.ReLU(inplace=True)))
+                    rcnt += 1
+                elif 'Drop' in str(layer):
+                    layers.append((f'drop{dcnt}', nn.Dropout(p=0.5)))
+                    dcnt += 1
+
+            classifier = nn.Sequential(OrderedDict(layers))
+            model_ft.classifier = classifier
+            print(model_ft.classifier)
 
         max_clf_idx = (len(model_ft.classifier) - 1)
         num_ftrs = model_ft.classifier[max_clf_idx].in_features
-        num_classes = len(self.image_datasets['train'].classes)
         model_ft.classifier[max_clf_idx] = nn.Linear(num_ftrs, num_classes)
         input_size = 224
 
