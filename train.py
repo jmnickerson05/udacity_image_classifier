@@ -9,18 +9,16 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('data_directory')
     parser.add_argument('--save_dir', default='.')
-    parser.add_argument('--learning_rate', default=0.01)
-    parser.add_argument('--epochs', default=25)
-    parser.add_argument('--gpu', default=True)
-    # NOPE -- Not sure I would just change models on the fly in the real world.
-    # parser.add_argument('--arch', default='vgg16')
-    # IS THIS NEEDED?
-    # parser.add_argument('--hidden_units', default=512)
+    parser.add_argument('--learning_rate', default=0.01, type=float)
+    parser.add_argument('--epochs', default=25, type=int)
+    parser.add_argument('--gpu', action='store_true')
+    parser.add_argument('--arch', default='vgg16')
     global args
     args = parser.parse_args()
-
-    model = initialize_model(num_classes=102, feature_extract=True)[0]
-    train_and_save(model)
+    
+    dataloaders_dict, image_datasets = get_transform_data()
+    model = initialize_model(image_datasets, feature_extract=True)[0]
+    train_and_save(model, dataloaders_dict, image_datasets)
 
 
 # Adapted From: https://pytorch.org/tutorials/beginner/finetuning_torchvision_models_tutorial.html
@@ -29,14 +27,18 @@ def set_parameter_requires_grad(model, feature_extracting):
         for param in model.parameters():
             param.requires_grad = False
 
-
-def initialize_model(num_classes, feature_extract, use_pretrained=True):
+def initialize_model(image_datasets, feature_extract, use_pretrained=True):
     model_ft = None
     input_size = 0
-    model_ft = models.vgg16_bn(pretrained=use_pretrained)
+    if args.arch.lower() == 'vgg16':
+        model_ft = models.vgg16_bn(pretrained=use_pretrained)
+    if args.arch.lower() == 'vgg13':
+        model_ft = models.vgg13_bn(pretrained=use_pretrained)    
     set_parameter_requires_grad(model_ft, feature_extract)
-    num_ftrs = model_ft.classifier[6].in_features
-    model_ft.classifier[6] = nn.Linear(num_ftrs, num_classes)
+    max_clf_idx = (len(model_ft.classifier)-1)
+    num_ftrs = model_ft.classifier[max_clf_idx].in_features
+    num_classes = len(image_datasets['train'].classes)
+    model_ft.classifier[max_clf_idx] = nn.Linear(num_ftrs, num_classes)
     input_size = 224
 
     return model_ft, input_size
@@ -110,42 +112,45 @@ def train_model(model, dataloaders, criterion, optimizer, num_epochs=25, is_ince
     model.load_state_dict(best_model_wts)
     return model, val_acc_history
 
+def get_transform_data():
+    data_dir = args.data_directory
+    data_transforms = {'train': transforms.Compose([transforms.RandomRotation(30),
+                                                    transforms.RandomResizedCrop(224),
+                                                    transforms.RandomHorizontalFlip(),
+                                                    transforms.ToTensor(),
+                                                    transforms.Normalize([0.485, 0.456, 0.406],
+                                                                         [0.229, 0.224, 0.225])
+                                                   ]),
+                       'test': transforms.Compose([transforms.Resize(255),
+                                                   transforms.CenterCrop(224),
+                                                   transforms.ToTensor(),
+                                                   transforms.Normalize([0.485, 0.456, 0.406],
+                                                                        [0.229, 0.224, 0.225])
+                                                  ]),
+                       'valid': transforms.Compose([transforms.Resize(255),
+                                                    transforms.CenterCrop(224),
+                                                    transforms.ToTensor(),
+                                                    transforms.Normalize([0.485, 0.456, 0.406],
+                                                                         [0.229, 0.224, 0.225])
+                                                   ])
+                      }
+
+    image_datasets = {x: datasets.ImageFolder(os.path.join(data_dir, x),
+                                              data_transforms[x])
+                      for x in ['train', 'test', 'valid']}
+
+    dataloaders_dict = {x: torch.utils.data.DataLoader(image_datasets[x],
+                                                       batch_size=8, shuffle=True,
+                                                       num_workers=4) for x in ['train', 'valid', 'test']}
+
+    return dataloaders_dict, image_datasets
 
 # Adapted From: https://pytorch.org/tutorials/beginner/finetuning_torchvision_models_tutorial.html
-def train_and_save(model):
+def train_and_save(model, dataloaders_dict, image_datasets):
     with active_session():
-        data_dir = args.data_directory
-        data_transforms = {'train': transforms.Compose([transforms.RandomRotation(30),
-                                                        transforms.RandomResizedCrop(224),
-                                                        transforms.RandomHorizontalFlip(),
-                                                        transforms.ToTensor(),
-                                                        transforms.Normalize([0.485, 0.456, 0.406],
-                                                                             [0.229, 0.224, 0.225])
-                                                        ]),
-                           'test': transforms.Compose([transforms.Resize(255),
-                                                       transforms.CenterCrop(224),
-                                                       transforms.ToTensor(),
-                                                       transforms.Normalize([0.485, 0.456, 0.406],
-                                                                            [0.229, 0.224, 0.225])
-                                                       ]),
-                           'valid': transforms.Compose([transforms.Resize(255),
-                                                        transforms.CenterCrop(224),
-                                                        transforms.ToTensor(),
-                                                        transforms.Normalize([0.485, 0.456, 0.406],
-                                                                             [0.229, 0.224, 0.225])
-                                                        ])
-                           }
-
-        image_datasets = {x: datasets.ImageFolder(os.path.join(data_dir, x),
-                                                  data_transforms[x])
-                          for x in ['train', 'test', 'valid']}
-
-        dataloaders_dict = {x: torch.utils.data.DataLoader(image_datasets[x],
-                                                           batch_size=8, shuffle=True,
-                                                           num_workers=4) for x in ['train', 'valid']}
-
         feature_extract = True
-        params_to_update = model.parameters()
+        #COMMENTED OUT PER REVIEWS INSTRUCTIONS
+        #params_to_update = model.parameters()
         print("Params to learn:")
         if feature_extract:
             params_to_update = []
@@ -165,7 +170,7 @@ def train_and_save(model):
                                   criterion=criterion,
                                   optimizer=optimizer_ft)
 
-        # Uncomment this to save the model during an unattended run
-        torch.save(model, f'{args.save_dir}/cli_checkpoint.pth')
+        torch.save(model.state_dict(),
+                   f'{args.save_dir}/cli_checkpoint_{args.arch}.pth')
 
 main()
