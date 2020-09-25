@@ -51,5 +51,4 @@ def keep_awake(iterable, delay=DELAY, interval=INTERVAL):
     for i in keep_awake(range(5)):
         # do iteration with lots of work here
     """
-    with active_session(delay, interval):
-        return iterable
+    with active_session(delay, interval): yield from iterable
