@@ -12,7 +12,7 @@ def main():
     parser.add_argument('--save_dir', default='.')
     parser.add_argument('--learning_rate', default=0.01, type=float)
     parser.add_argument('--epochs', default=25, type=int)
-    parser.add_argument('--hidden_units', default=4096)
+    parser.add_argument('--hidden_units', default=4096, type=int)
     parser.add_argument('--gpu', action='store_true')
     parser.add_argument('--arch', default='vgg16', help='HINT: [vgg16 or alexnet]')
     args = parser.parse_args()
@@ -110,15 +110,8 @@ class DL_Trainer:
                     labels = labels.to(device)
                     optimizer.zero_grad()
                     with torch.set_grad_enabled(phase == 'train'):
-                        if is_inception and phase == 'train':
-                            # From https://discuss.pytorch.org/t/how-to-optimize-inception-model-with-auxiliary-classifiers/7958
-                            outputs, aux_outputs = model(inputs)
-                            loss1 = criterion(outputs, labels)
-                            loss2 = criterion(aux_outputs, labels)
-                            loss = loss1 + 0.4 * loss2
-                        else:
-                            outputs = model(inputs)
-                            loss = criterion(outputs, labels)
+                        outputs = model(inputs)
+                        loss = criterion(outputs, labels)
                         _, preds = torch.max(outputs, 1)
                         if phase == 'train':
                             loss.backward()
@@ -207,8 +200,10 @@ class DL_Trainer:
                                                 optimizer=optimizer_ft,
                                                 num_epochs=self.args.epochs)
 
-            torch.save(self.model.state_dict(),
-                       f'{self.args.save_dir}/cli_checkpoint_{self.args.arch}.pth')
-
+            checkpoint = {'architecture': self.args.arch.lower(),
+                          'classifier': self.model.classifier,
+                          'class_to_idx': self.image_datasets['train'].class_to_idx,
+                          'state_dict': self.model.state_dict()}
+            torch.save(checkpoint, f'{self.args.save_dir}/cli_checkpoint_{self.args.arch}.pth')
 
 main()
